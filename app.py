@@ -77,6 +77,81 @@ def translate_text(text, target_lang_name, source_lang_name=None, formality='def
     except Exception as e:
         raise RuntimeError(f"Translation failed: {str(e)}")
 
+
+
+
+
+def get_settings(admin_id):
+    try:
+        # Get connection details from environment variables
+        host = os.getenv('DB_HOST')
+        database = os.getenv('DB_NAME')
+        user = os.getenv('DB_USER')
+        password = os.getenv('DB_PASSWORD')
+        port_str = os.getenv('DB_PORT')
+
+        # Ensure all variables are set
+        if not all([host, database, user, password, port_str]):
+            return {"error": "Database connection details are not set properly."}, 500
+        
+        # Convert port to integer
+        try:
+            port = int(port_str)
+        except (ValueError, TypeError) as e:
+            logging.error(f"Port conversion error: {e}")
+            return {"error": "Invalid port number."}, 500
+
+        # Connect to PostgreSQL
+        connection = psycopg2.connect(
+            host=host,
+            database=database,
+            user=user,
+            password=password,
+            port=port
+        )
+        cursor = connection.cursor()
+        
+        # Query the database for the settings associated with the given Admin_id
+        query = """
+        SELECT key, text_translation_endpoint, document_translation_endpoint, region, storage_connection_string
+        FROM settings
+        WHERE admin_id = %s;
+        """
+        
+        cursor.execute(query, (admin_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            return {"error": f"No settings found for Admin_id {admin_id}."}, 404
+        
+        # Prepare the response
+        settings = {
+            'key': result[0],
+            'text_translation_endpoint': result[1],
+            'document_translation_endpoint': result[2],
+            'region': result[3],
+            'storage_connection_string': result[4]
+        }
+        
+        # Close the connection
+        cursor.close()
+        connection.close()
+        
+        return settings, 200
+    
+    except Exception as e:
+        logging.error(f"Error: {e}")
+        return {"error": "An error occurred while retrieving the settings."}, 500
+
+
+
+
+
+
+
+
+
+
 # Route for addition service
 @app.route('/')
 def say_hi():
@@ -127,6 +202,37 @@ def translate():
         return jsonify({'translated_text': translated_text})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+
+
+
+# Route for retrieving settings
+@app.route('/get_settings', methods=['GET'])
+def retrieve_settings():
+    # Extract Admin_id from the request parameters
+    admin_id = request.args.get('admin_id')
+    
+    if not admin_id:
+        return jsonify({"error": "Please provide an 'admin_id'."}), 400
+
+    # Call the get_settings function
+    settings, status_code = get_settings(admin_id)
+
+    return jsonify(settings), status_code
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
     # Use the environment variable PORT, or default to port 5000 if not set
