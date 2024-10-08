@@ -1,24 +1,13 @@
-import os
-import deepl
-from flask import Flask, request, jsonify
 import requests
 import time
-import logging
+from flask import Flask, request, jsonify, send_file
 
-# Initialize Flask app
 app = Flask(__name__)
 
-# Replace with your DeepL API auth key
-auth_key = "82a64fae-73d4-4739-9935-bbf3cfc15010"
-translator = deepl.Translator(auth_key)
-# Setup logging
-logging.basicConfig(level=logging.INFO)
+# DeepL API key
+DEEPL_API_KEY = '82a64fae-73d4-4739-9935-bbf3cfc15010'
 
-# DeepL API constants
-DEEPL_ENDPOINT = "https://api.deepl.com/v2/document"
-DEEPL_API_KEY = "82a64fae-73d4-4739-9935-bbf3cfc15010"  # Replace with your actual API key
-
-# Comprehensive language mapping
+# Language mapping
 language_mapping = {
     "Arabic": "AR",
     "Bulgarian": "BG",
@@ -58,210 +47,89 @@ language_mapping = {
     "Chinese (Traditional)": "ZH-HANT"
 }
 
-def translate_text(text, target_lang_name, source_lang_name=None, formality='default', preserve_formatting=True):
-    # Validate required parameters
-    if not text or not target_lang_name:
-        raise ValueError("Missing required parameters: 'text' and 'target_lang'.")
+def translate_document(file, source_lang, target_lang):
+    # Convert language names to language codes
+    source_lang_code = language_mapping.get(source_lang, 'EN')  # Default to English if not found
+    target_lang_code = language_mapping.get(target_lang, 'FR')  # Default to French if not found
 
-    # Convert language names to codes
-    source_lang = language_mapping.get(source_lang_name) if source_lang_name else None
-    target_lang = language_mapping.get(target_lang_name)
+    # Step 1: Submit the document to DeepL for translation
+    url = "https://api.deepl.com/v2/document"
+    data = {
+        'auth_key': DEEPL_API_KEY,
+        'source_lang': source_lang_code,
+        'target_lang': target_lang_code
+    }
+    files = {
+        'file': (file.filename, file.stream, file.content_type)
+    }
 
-    if target_lang is None:
-        raise ValueError(f"Invalid target language: '{target_lang_name}'. Please provide a valid language name.")
+    response = requests.post(url, data=data, files=files)
 
-    try:
-        # Perform the translation
-        result = translator.translate_text(
-            text,
-            source_lang=source_lang,
-            target_lang=target_lang,
-            formality=formality,
-            preserve_formatting=preserve_formatting
-        )
+    if response.status_code != 200:
+        return None, None, f"Error submitting document: {response.status_code}, {response.text}"
 
-        # Return the translated text
-        return result.text
+    # Extract document_id and document_key
+    json_response = response.json()
+    document_id = json_response.get('document_id')
+    document_key = json_response.get('document_key')
 
-    except Exception as e:
-        raise RuntimeError(f"Translation failed: {str(e)}")
+    if not document_id or not document_key:
+        return None, None, "Error: document_id or document_key missing in response"
 
-def translate_document(file_obj, source_lang, target_lang):
-    try:
-        # Get the original file name from the file object
-        original_filename = os.path.basename(file_obj.name)
-        file_name, file_extension = os.path.splitext(original_filename)
+    # Step 2: Check the translation status until it's done
+    status_url = f"https://api.deepl.com/v2/document/{document_id}"
+    status_params = {
+        'auth_key': DEEPL_API_KEY,
+        'document_key': document_key
+    }
 
-        # Step 1: Upload document for translation
-        files = {'file': file_obj}
-        data = {
-            'auth_key': DEEPL_API_KEY,
-            'source_lang': source_lang,  # e.g., 'EN'
-            'target_lang': target_lang   # e.g., 'DE'
-        }
-        logging.info("Uploading document for translation...")
-        upload_response = requests.post(f"{DEEPL_ENDPOINT}", files=files, data=data)
-        upload_response.raise_for_status()
-        upload_result = upload_response.json()
-
-        document_id = upload_result['document_id']
-        document_key = upload_result['document_key']
-
-        logging.info(f"Document uploaded successfully with document_id: {document_id}")
-
-        # Step 2: Poll for translation status
-        status_url = f"{DEEPL_ENDPOINT}/{document_id}"
-        params = {
-            'auth_key': DEEPL_API_KEY,
-            'document_key': document_key
-        }
-
-        while True:
-            status_response = requests.get(status_url, params=params)
-            status_response.raise_for_status()
+    while True:
+        status_response = requests.get(status_url, params=status_params)
+        if status_response.status_code == 200:
             status_data = status_response.json()
-
             if status_data['status'] == 'done':
-                logging.info("Translation completed.")
-                break
+                break  # Translation is complete!
             elif status_data['status'] == 'error':
-                logging.error(f"Error in translation: {status_data['message']}")
-                return None
-            else:
-                logging.info(f"Translation status: {status_data['status']}... retrying in 5 seconds")
-                time.sleep(5)
+                return None, None, "Error during translation"
+        else:
+            return None, None, f"Error checking status: {status_response.status_code}, {status_response.text}"
 
-        # Step 3: Download the translated document
-        download_url = f"{DEEPL_ENDPOINT}/{document_id}/result"
-        translated_doc_response = requests.get(download_url, params=params)
-        translated_doc_response.raise_for_status()
+        time.sleep(5)  # Wait before checking again
 
-        # Save the translated document with the target language code appended to the name
-        translated_file_name = f"{file_name}_{target_lang}{file_extension}"
-        with open(translated_file_name, 'wb') as output_file:
-            output_file.write(translated_doc_response.content)
+    # Step 3: Download the translated document
+    download_url = f"https://api.deepl.com/v2/document/{document_id}/result"
+    download_params = {
+        'auth_key': DEEPL_API_KEY,
+        'document_key': document_key
+    }
+    download_response = requests.get(download_url, params=download_params)
 
-        logging.info(f"Translated document saved as: {translated_file_name}")
-        return translated_file_name
-
-    except requests.exceptions.RequestException as e:
-        logging.error(f"An error occurred: {e}")
-        return None
+    if download_response.status_code == 200:
+        translated_file_name = f"translated_{document_id}.docx"
+        with open(translated_file_name, 'wb') as f:
+            f.write(download_response.content)
+        return translated_file_name, download_response.content, None
+    else:
+        return None, None, f"Error downloading document: {download_response.status_code}, {download_response.text}"
 
 @app.route('/document-translate', methods=['POST'])
 def document_translate():
-    # Check if the request contains the file and required form data
     if 'file' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
-    if 'source_lang' not in request.form or 'target_lang' not in request.form:
-        return jsonify({'error': 'Please provide source_lang and target_lang'}), 400
+        return jsonify({'error': 'No file part in the request'}), 400
 
-    # Get the file and languages from the request
-    file_obj = request.files['file']
-    source_lang = request.form['source_lang']
-    target_lang = request.form['target_lang']
+    file = request.files['file']
+    source_lang = request.form.get('source_lang', 'English')  # Default source language to English
+    target_lang = request.form.get('target_lang', 'French')  # Default target language to French
 
-    # Perform the document translation
-    translated_file_name = translate_document(file_obj, source_lang, target_lang)
+    # Call the function to translate the document
+    translated_file_name, translated_content, error = translate_document(file, source_lang, target_lang)
 
-    if translated_file_name:
-        return jsonify({'message': f'Document translated successfully. Saved as {translated_file_name}'}), 200
-    else:
-        return jsonify({'error': 'Document translation failed'}), 500
+    if error:
+        return jsonify({'error': error}), 500
 
-
-
-
-
-
-
-
-
-
-
-
-# Route for addition service
-@app.route('/')
-def say_hi():
-    return 'Hi! This is a service that offers both addition and translation. Use /add for addition and /translate for translation.'
-
-@app.route('/add', methods=['POST'])
-def add_numbers():
-    # Get JSON data from the request
-    data = request.get_json()
+    # Send the translated file to the user
+    return send_file(translated_file_name, as_attachment=True)
     
-    # Extract numbers from the JSON data
-    num1 = data.get('num1')
-    num2 = data.get('num2')
-    
-    # Check if both numbers are provided and are valid
-    if num1 is None or num2 is None:
-        return jsonify({'error': 'Please provide both num1 and num2'}), 400
-    if not isinstance(num1, (int, float)) or not isinstance(num2, (int, float)):
-        return jsonify({'error': 'Both num1 and num2 must be numbers'}), 400
-
-    # Perform addition
-    result = num1 + num2
-
-    # Return the result as JSON
-    return jsonify({'result': result})
-
-# Route for translation service
-@app.route('/translate', methods=['POST'])
-def translate():
-    # Get JSON data from the request
-    data = request.get_json()
-
-    # Extract text and languages from the JSON data
-    text = data.get('text')
-    target_language = data.get('target_language')
-    source_language = data.get('source_language', None)
-
-    if not text or not target_language:
-        return jsonify({'error': 'Please provide text and target_language'}), 400
-
-    # Optional formality and formatting preservation flags
-    formality = data.get('formality', 'default')
-    preserve_formatting = data.get('preserve_formatting', True)
-
-    try:
-        # Perform translation
-        translated_text = translate_text(text, target_language, source_language, formality, preserve_formatting)
-        return jsonify({'translated_text': translated_text})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-
-
-
-# Route for retrieving settings
-@app.route('/get_settings', methods=['GET'])
-def retrieve_settings():
-    # Extract Admin_id from the request parameters
-    admin_id = request.args.get('admin_id')
-    
-    if not admin_id:
-        return jsonify({"error": "Please provide an 'admin_id'."}), 400
-
-    # Call the get_settings function
-    settings, status_code = get_settings(admin_id)
-
-    return jsonify(settings), status_code
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 if __name__ == '__main__':
     # Use the environment variable PORT, or default to port 5000 if not set
     port = int(os.environ.get('PORT', 5000))
