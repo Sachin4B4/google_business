@@ -222,7 +222,7 @@ def translate():
         return jsonify({'error': 'Please provide text and target_language'}), 400
 
     # Optional formality and formatting preservation flags
-    formality = data.get('formality', 'default')
+    formality = data.get('formality', 'prefer_more')
     preserve_formatting = data.get('preserve_formatting', True)
 
     try:
