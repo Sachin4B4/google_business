@@ -2,6 +2,7 @@ import requests
 import time
 import os
 import deepl
+import psycopg2
 from flask import Flask, request, jsonify, send_file
 
 app = Flask(__name__)
@@ -81,6 +82,39 @@ def translate_text(text, target_lang_name, source_lang_name=None, formality='def
 
     except Exception as e:
         raise RuntimeError(f"Translation failed: {str(e)}")
+
+def store_feedback(user_id, feedback_text, source_language, target_language, 
+                   document_name=None, source_text=None, translated_text=None):
+    try:
+        # Establish connection to the PostgreSQL database
+        conn = psycopg2.connect(
+            dbname='settings_db',
+            user='citus',
+            password='password@123',
+            host='c-settings-details.4frco7jk32qfsk.postgres.cosmos.azure.com',
+            port='5432'
+        )
+        cursor = conn.cursor()
+
+        # SQL query to insert feedback data into the database
+        cursor.execute(
+            """
+            INSERT INTO user_feedback (user_id, feedback_text, source_language, target_language, 
+                                       document_name, source_text, translated_text) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (user_id, feedback_text, source_language, target_language, document_name, source_text, translated_text)
+        )
+
+        # Commit the transaction to save the data
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return "Feedback stored successfully"
+    except Exception as e:
+        print(f"Error storing feedback: {e}")
+        return "Error storing feedback"
 
 
 def translate_document(file, source_lang, target_lang):
@@ -215,6 +249,32 @@ def document_translate():
 
     # Send the translated file to the user
     return send_file(translated_file_name, as_attachment=True)
+    
+@app.route('/feedback', methods=['POST'])
+def submit_feedback():
+    data = request.get_json()
+
+    # Extract feedback details from the request
+    user_id = data.get('user_id')
+    feedback_text = data.get('feedback_text')
+    source_language = data.get('source_language')
+    target_language = data.get('target_language')
+    document_name = data.get('document_name', None)
+    source_text = data.get('source_text', None)
+    translated_text = data.get('translated_text', None)
+
+    if not user_id or not feedback_text or not source_language or not target_language:
+        return jsonify({'error': 'Please provide all required fields: user_id, feedback_text, source_language, target_language'}), 400
+
+    # Store feedback in the database
+    result = store_feedback(user_id, feedback_text, source_language, target_language, document_name, source_text, translated_text)
+
+    if "Error" in result:
+        return jsonify({'error': result}), 500
+
+    return jsonify({'message': result}), 200
+
+
     
 if __name__ == '__main__':
     # Use the environment variable PORT, or default to port 5000 if not set
