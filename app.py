@@ -1,11 +1,17 @@
 import requests
 import time
+import os
+import deepl
 from flask import Flask, request, jsonify, send_file
 
 app = Flask(__name__)
 
 # DeepL API key
 DEEPL_API_KEY = '82a64fae-73d4-4739-9935-bbf3cfc15010'
+
+# Replace with your DeepL API auth key
+auth_key = "82a64fae-73d4-4739-9935-bbf3cfc15010"
+translator = deepl.Translator(auth_key)
 
 # Language mapping
 language_mapping = {
@@ -46,6 +52,36 @@ language_mapping = {
     "Chinese (Simplified)": "ZH-HANS",
     "Chinese (Traditional)": "ZH-HANT"
 }
+
+
+def translate_text(text, target_lang_name, source_lang_name=None, formality='default', preserve_formatting=True):
+    # Validate required parameters
+    if not text or not target_lang_name:
+        raise ValueError("Missing required parameters: 'text' and 'target_lang'.")
+
+    # Convert language names to codes
+    source_lang = language_mapping.get(source_lang_name) if source_lang_name else None
+    target_lang = language_mapping.get(target_lang_name)
+
+    if target_lang is None:
+        raise ValueError(f"Invalid target language: '{target_lang_name}'. Please provide a valid language name.")
+
+    try:
+        # Perform the translation
+        result = translator.translate_text(
+            text,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            formality=formality,
+            preserve_formatting=preserve_formatting
+        )
+
+        # Return the translated text
+        return result.text
+
+    except Exception as e:
+        raise RuntimeError(f"Translation failed: {str(e)}")
+
 
 def translate_document(file, source_lang, target_lang):
     # Convert language names to language codes
@@ -111,6 +147,56 @@ def translate_document(file, source_lang, target_lang):
         return translated_file_name, download_response.content, None
     else:
         return None, None, f"Error downloading document: {download_response.status_code}, {download_response.text}"
+
+@app.route('/')
+def say_hi():
+    return 'Hi! This is a service that offers both addition and translation. Use /add for addition and /translate for translation.'
+
+@app.route('/add', methods=['POST'])
+def add_numbers():
+    # Get JSON data from the request
+    data = request.get_json()
+    
+    # Extract numbers from the JSON data
+    num1 = data.get('num1')
+    num2 = data.get('num2')
+    
+    # Check if both numbers are provided and are valid
+    if num1 is None or num2 is None:
+        return jsonify({'error': 'Please provide both num1 and num2'}), 400
+    if not isinstance(num1, (int, float)) or not isinstance(num2, (int, float)):
+        return jsonify({'error': 'Both num1 and num2 must be numbers'}), 400
+
+    # Perform addition
+    result = num1 + num2
+
+    # Return the result as JSON
+    return jsonify({'result': result})
+
+# Route for translation service
+@app.route('/translate', methods=['POST'])
+def translate():
+    # Get JSON data from the request
+    data = request.get_json()
+
+    # Extract text and languages from the JSON data
+    text = data.get('text')
+    target_language = data.get('target_language')
+    source_language = data.get('source_language', None)
+
+    if not text or not target_language:
+        return jsonify({'error': 'Please provide text and target_language'}), 400
+
+    # Optional formality and formatting preservation flags
+    formality = data.get('formality', 'default')
+    preserve_formatting = data.get('preserve_formatting', True)
+
+    try:
+        # Perform translation
+        translated_text = translate_text(text, target_language, source_language, formality, preserve_formatting)
+        return jsonify({'translated_text': translated_text})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/document-translate', methods=['POST'])
 def document_translate():
