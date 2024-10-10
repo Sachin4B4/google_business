@@ -213,53 +213,6 @@ def get_db_connection():
 
 
 
-def test_api_key(auth_key):
-    # Hardcoded values inside the function
-    text = "Hello, how are you?"  # Text to be translated
-    target_language = "French"    # Target language for translation
-    source_language = "English"   # Source language for translation
-    formality = 'default'         # Optional formality parameter
-    preserve_formatting = True    # Optional formatting preservation
-    
-    # Language mapping
-    language_mapping = {
-        "English": "EN",
-        "French": "FR"
-    }
-
-    # Validate the provided API key
-    if not auth_key:
-        raise ValueError("Missing required parameter: 'auth_key'.")
-
-    # Initialize the DeepL translator with the provided API key
-    translator = deepl.Translator(auth_key)
-
-    # Get language codes from hardcoded names
-    source_lang = language_mapping.get(source_language)
-    target_lang = language_mapping.get(target_language)
-
-    try:
-        # Perform translation using DeepL API
-        result = translator.translate_text(
-            text,
-            source_lang=source_lang,
-            target_lang=target_lang,
-            formality=formality if formality != 'default' else None,
-            preserve_formatting=preserve_formatting
-        )
-        return result.text
-    except deepl.DeepLException as e:
-        raise RuntimeError(f"Translation failed: {str(e)}")
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -448,109 +401,10 @@ def test_translation():
         # Catch any other errors
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
-from flask import Flask, request, jsonify
-import requests
-
-app = Flask(__name__)
-
-# Hardcoded source document URL, source language, and target language
-SOURCE_DOCUMENT_URL = "https://devaitranslationstorage.blob.core.windows.net/source/Body%20is%20the%20temple.docx?sp=r&st=2024-10-10T13:21:05Z&se=2026-02-25T21:21:05Z&spr=https&sv=2022-11-02&sr=b&sig=TUldqtSd0ljLMMOzrMnrot0FzBI7r0uwz%2BnDKkpntRc%3D"
-TARGET_DOCUMENT_URL = "https://devaitranslationstorage.blob.core.windows.net/translated/translated_doc_es.docx"
-SOURCE_LANGUAGE_CODE = "en"  # English as source language
-TARGET_LANGUAGE_CODE = "es"  # Spanish as target language
-
-@app.route('/translate_document', methods=['POST'])
-def translate_document():
-    # Get key, endpoint, and region from request
-    key = request.form.get('key')
-    text_translation_endpoint = request.form.get('endpoint')
-    region = request.form.get('region')
-
-    # Validate key, endpoint, and region
-    if not key or not text_translation_endpoint or not region:
-        return jsonify({"error": "API key, endpoint, and region are required."}), 400
-
-    # Construct the Azure Document Translation API URL
-    constructed_url = f"{text_translation_endpoint}/translator/text/batch/v1.0/batches"
-
-    # Setup the request body and headers with hardcoded URLs and languages
-    body = {
-        "inputs": [
-            {
-                "source": {
-                    "sourceUrl": SOURCE_DOCUMENT_URL,
-                    "language": SOURCE_LANGUAGE_CODE
-                },
-                "targets": [
-                    {
-                        "targetUrl": TARGET_DOCUMENT_URL,
-                        "language": TARGET_LANGUAGE_CODE
-                    }
-                ]
-            }
-        ]
-    }
-
-    headers = {
-        'Ocp-Apim-Subscription-Key': key,
-        'Ocp-Apim-Subscription-Region': region,
-        'Content-Type': 'application/json'
-    }
-
-    try:
-        # Make the request to the Azure Document Translation API
-        response = requests.post(constructed_url, headers=headers, json=body)
-
-        # Log the status code and response text
-        print("Status Code:", response.status_code)
-        print("Response Text:", response.text)
-
-        # Raise an error for bad responses
-        response.raise_for_status()
-
-        # If the request is successful, return success message
-        return jsonify({"success": True, "message": "Document translation started successfully."}), 200
-
-    except requests.exceptions.HTTPError as http_err:
-        print(f"HTTP error occurred: {http_err}")
-        return jsonify({"error": f"HTTP error occurred: {http_err}"}), 500
-    except Exception as e:
-        print(f"An unexpected error occurred: {str(e)}")
-        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
-
 if __name__ == '__main__':
-    # Use the environment variable PORT, or default to port 5000 if not set
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(debug=True)
 
 
-# Route to check API key validity
-@app.route('/test-api-key', methods=['POST'])
-def check_api_key():
-    if request.content_type != 'application/json':
-        return jsonify({'error': 'Content-Type must be application/json'}), 400
-
-    # Get JSON data from the request
-    data = request.get_json()
-
-    if not data:
-        return jsonify({'error': 'Request body must be in JSON format'}), 400
-
-    # Extract the DeepL API key from the request
-    auth_key = data.get('auth_key')
-    if not auth_key:
-        return jsonify({'error': 'Please provide the "auth_key".'}), 400
-
-    try:
-        # Test the API key by performing a translation
-        translated_text = test_api_key(auth_key)
-        return jsonify({'success': True, 'translated_text': translated_text}), 200
-    except ValueError as ve:
-        return jsonify({'error': str(ve)}), 400
-    except RuntimeError as re:
-        return jsonify({'error': str(re)}), 500
-    except Exception as e:
-        return jsonify({'error': 'An unexpected error occurred: ' + str(e)}), 500
 
 
 
