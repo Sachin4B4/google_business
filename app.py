@@ -567,8 +567,6 @@ def check_api_key():
         return jsonify({'error': 'An unexpected error occurred: ' + str(e)}), 500
 
 
-
-
 # Route to retrieve all columns using admin_id from form data
 @app.route('/test_deepl_api', methods=['POST'])
 def get_api():
@@ -609,6 +607,82 @@ def get_api():
         return jsonify({"error": str(e)}), 500
 
 
+
+
+
+DEEPL_API_URL = 'https://api.deepl.com/v2/document'
+
+@app.route('/multiple_files', methods=['POST'])
+def translate_files():
+    try:
+        # Retrieve form data
+        files = request.files.getlist('file')  # The list of uploaded files
+        source_lang = request.form.get('source_lang', 'auto')  # Default to auto-detect if not provided
+        target_lang = request.form['target_lang']  # Target language
+
+        # Convert human-readable language names to language codes
+        source_lang_code = language_mapping.get(source_lang, 'auto')  # Use 'auto' for detection if not in mapping
+        target_lang_code = language_mapping.get(target_lang)
+
+        if not target_lang_code:
+            return jsonify({"error": "Invalid target language"}), 400
+
+        download_urls = []  # To store file names and download URLs
+
+        # Process each file individually
+        for file in files:
+            # Prepare file and payload for the DeepL API request
+            file_payload = {
+                'file': (file.filename, file.stream, file.content_type),
+                'target_lang': (None, target_lang_code),
+                'source_lang': (None, source_lang_code if source_lang_code != 'auto' else None)
+            }
+
+            headers = {
+                'Authorization': f'DeepL-Auth-Key {DEEPL_API_KEY}'
+            }
+
+            # 1. Upload document for translation
+            response = requests.post(DEEPL_API_URL, files=file_payload, headers=headers)
+
+            if response.status_code != 200:
+                return jsonify({"error": f"File upload failed for {file.filename}"}), response.status_code
+
+            response_data = response.json()
+            document_id = response_data['document_id']
+            document_key = response_data['document_key']
+
+            # 2. Check translation status (polling)
+            check_status_url = f"{DEEPL_API_URL}/{document_id}"
+            status_payload = {"document_key": document_key}
+
+            status = 'translating'
+            while status == 'translating':
+                status_response = requests.post(check_status_url, json=status_payload, headers=headers)
+                status_data = status_response.json()
+                status = status_data['status']
+
+            if status != 'done':
+                return jsonify({"error": f"Translation failed for {file.filename}"}), 500
+
+            # 3. Instead of downloading the file, get the URL for download
+            download_url = f"{DEEPL_API_URL}/{document_id}/result"
+            
+            # Append the file name and corresponding download URL to the list
+            download_urls.append({
+                'file_name': file.filename,
+                'download_url': download_url,
+                'document_key': document_key  # document_key needed for accessing the result later
+            })
+
+        # Return the list of file names and download URLs
+        return jsonify({
+            'message': 'Files translated successfully',
+            'translations': download_urls
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 
