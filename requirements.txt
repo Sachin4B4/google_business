@@ -9,4 +9,5 @@ python-dotenv<0.22
 deepl
 urllib3
 psycopg2
+azure-storage-blob
 
