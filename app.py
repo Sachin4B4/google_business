@@ -401,7 +401,91 @@ def test_translation():
         # Catch any other errors
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
-   
+from flask import Flask, request, jsonify
+import requests
+
+app = Flask(__name__)
+
+# Hardcoded source document URL, source language, and target language
+SOURCE_DOCUMENT_URL = "https://devaitranslationstorage.blob.core.windows.net/source/Body%20is%20the%20temple.docx?sp=r&st=2024-10-10T13:21:05Z&se=2026-02-25T21:21:05Z&spr=https&sv=2022-11-02&sr=b&sig=TUldqtSd0ljLMMOzrMnrot0FzBI7r0uwz%2BnDKkpntRc%3D"
+TARGET_DOCUMENT_URL = "https://devaitranslationstorage.blob.core.windows.net/translated/translated_doc_es.docx"
+SOURCE_LANGUAGE_CODE = "en"  # English as source language
+TARGET_LANGUAGE_CODE = "es"  # Spanish as target language
+
+@app.route('/translate_document', methods=['POST'])
+def translate_document():
+    # Get key, endpoint, and region from request
+    key = request.form.get('key')
+    text_translation_endpoint = request.form.get('endpoint')
+    region = request.form.get('region')
+
+    # Validate key, endpoint, and region
+    if not key or not text_translation_endpoint or not region:
+        return jsonify({"error": "API key, endpoint, and region are required."}), 400
+
+    # Construct the Azure Document Translation API URL
+    constructed_url = f"{text_translation_endpoint}/translator/text/batch/v1.0/batches"
+
+    # Setup the request body and headers with hardcoded URLs and languages
+    body = {
+        "inputs": [
+            {
+                "source": {
+                    "sourceUrl": SOURCE_DOCUMENT_URL,
+                    "language": SOURCE_LANGUAGE_CODE
+                },
+                "targets": [
+                    {
+                        "targetUrl": TARGET_DOCUMENT_URL,
+                        "language": TARGET_LANGUAGE_CODE
+                    }
+                ]
+            }
+        ]
+    }
+
+    headers = {
+        'Ocp-Apim-Subscription-Key': key,
+        'Ocp-Apim-Subscription-Region': region,
+        'Content-Type': 'application/json'
+    }
+
+    try:
+        # Make the request to the Azure Document Translation API
+        response = requests.post(constructed_url, headers=headers, json=body)
+
+        # Log the status code and response text
+        print("Status Code:", response.status_code)
+        print("Response Text:", response.text)
+
+        # Raise an error for bad responses
+        response.raise_for_status()
+
+        # If the request is successful, return success message
+        return jsonify({"success": True, "message": "Document translation started successfully."}), 200
+
+    except requests.exceptions.HTTPError as http_err:
+        print(f"HTTP error occurred: {http_err}")
+        return jsonify({"error": f"HTTP error occurred: {http_err}"}), 500
+    except Exception as e:
+        print(f"An unexpected error occurred: {str(e)}")
+        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+
+if __name__ == '__main__':
+    # Use the environment variable PORT, or default to port 5000 if not set
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
+
+
+
+
+
+
+
+
+
+
+    
 if __name__ == '__main__':
     # Use the environment variable PORT, or default to port 5000 if not set
     port = int(os.environ.get('PORT', 5000))
