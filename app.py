@@ -5,6 +5,7 @@ import deepl
 import psycopg2
 from flask import Flask, request, jsonify, send_file
 import json
+rom azure.storage.blob import BlobServiceClient
 
 
 
@@ -466,6 +467,35 @@ def translate_document():
     except Exception as e:
         print(f"An unexpected error occurred: {str(e)}")
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+
+def validate_connection_string(connection_string):
+    try:
+        # Attempt to create BlobServiceClient with the provided connection string
+        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        # Try to list containers to validate the connection
+        containers = blob_service_client.list_containers()
+        for container in containers:
+            pass  # Just to iterate and check if we can access containers
+        return True
+    except Exception as e:
+        print(f"Connection string validation failed: {str(e)}")
+        return False
+
+# Route to validate the connection string separately
+@app.route('/validate_connection_string', methods=['POST'])
+def validate_connection_string_route():
+    # Extract connection string from request
+    connection_string = request.form.get('connection_string')
+
+    # Ensure connection string is provided
+    if not connection_string:
+        return jsonify({"error": "Connection string is required."}), 400
+
+    # Validate the connection string using the function
+    if validate_connection_string(connection_string):
+        return jsonify({"success": True, "message": "Valid Azure Blob Storage connection string."}), 200
+    else:
+        return jsonify({"error": "Invalid Azure Blob Storage connection string."}), 400
 
 
 
