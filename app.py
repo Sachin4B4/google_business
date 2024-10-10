@@ -4,6 +4,9 @@ import os
 import deepl
 import psycopg2
 from flask import Flask, request, jsonify, send_file
+import json
+
+
 
 app = Flask(__name__)
 
@@ -341,6 +344,72 @@ def save_settings_deepl():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+
+@app.route('/test_translation', methods=['POST'])
+def test_translation():
+    # Get the inputs from form-data or query parameters
+    key = request.form.get('key')  # Azure Translator API key
+    text_translation_endpoint = request.form.get('endpoint')  # Translator service endpoint URL
+    region = request.form.get('region')  # Azure region
+
+    # Hardcoded values for translation
+    source_language_code = "en"  # English as source language
+    target_language_code = "es"  # Spanish as target language
+    text_to_translate = "This is a test"  # Text to translate
+
+    # Check if key, endpoint, and region are provided
+    if not key or not text_translation_endpoint or not region:
+        return jsonify({"error": "API key, endpoint, and region are required."}), 400
+
+    # Construct the Azure Translator API URL
+    path = 'translate'
+    constructed_url = f"{text_translation_endpoint}/{path}"
+
+    # Setup the query parameters and headers
+    params = {
+        'api-version': '3.0',
+        'from': source_language_code,
+        'to': target_language_code
+    }
+
+    headers = {
+        'Ocp-Apim-Subscription-Key': key,
+        'Ocp-Apim-Subscription-Region': region,
+        'Content-Type': 'application/json'
+    }
+
+    # Body of the request with the hardcoded text to be translated
+    body = [{'text': text_to_translate}]
+
+    try:
+        # Make the request to the Azure Translator API
+        response = requests.post(constructed_url, params=params, headers=headers, json=body)
+        response.raise_for_status()  # Raises an HTTPError for bad responses
+
+        # Parse the response JSON
+        response_json = response.json()
+
+        # Return the JSON response from the API
+        return jsonify(response_json), 200
+
+    except requests.exceptions.HTTPError as http_err:
+        # Catch HTTP errors from the API call
+        return jsonify({"error": f"HTTP error occurred: {http_err}"}), 500
+    except Exception as e:
+        # Catch any other errors
+        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
+
+
+
+
 
 
     
