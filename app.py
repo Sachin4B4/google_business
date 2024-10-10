@@ -401,8 +401,50 @@ def test_translation():
         # Catch any other errors
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
-if __name__ == '__main__':
-    app.run(debug=True)
+
+
+
+
+
+
+
+
+# Route for translation service
+@app.route('/test_deepl_api', methods=['POST'])
+def translate():
+    # Get JSON data from the request
+    data = request.get_json()
+
+    # Extract text and languages from the JSON data
+    text = "hi"
+    target_language = data.get('target_language')
+    source_language = data.get('source_language', None)
+
+    if not text or not target_language:
+        return jsonify({'error': 'Please provide text and target_language'}), 400
+
+    # Optional formality and formatting preservation flags
+    formality = data.get('formality', 'prefer_more')
+    preserve_formatting = data.get('preserve_formatting', True)
+
+    try:
+        # Perform translation
+        translated_text = translate_text(text, target_language, source_language, formality, preserve_formatting)
+        return jsonify({'translated_text': translated_text})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
