@@ -569,6 +569,53 @@ def check_api_key():
 
 
 
+# Route to retrieve all columns using admin_id from form data
+@app.route('/test_deepl_api', methods=['POST'])
+def get_api():
+    try:
+        # Get admin_id from the form data
+        admin_id = request.form.get('admin_id')
+
+        if not admin_id:
+            return jsonify({"error": "admin_id is required"}), 400
+
+        # Connect to the database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # SQL query to fetch all columns for the given admin_id
+        cursor.execute("SELECT * FROM deepl_settings WHERE admin_id = %s", (admin_id,))
+
+        # Fetch the result
+        result = cursor.fetchone()
+
+        # Check if result is None (no admin_id found)
+        if not result:
+            return jsonify({"error": "No record found for the given admin_id"}), 404
+
+        # Map the result to column names (assuming columns are admin_id and api in that order)
+        record = {
+            "admin_id": result[0],  # First column (admin_id)
+            "api": result[1]         # Second column (api key)
+        }
+
+        # Close the connection
+        cursor.close()
+        conn.close()
+
+        return jsonify(record), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+
+
+
+
+
 
 
     
