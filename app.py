@@ -5,7 +5,7 @@ import deepl
 import psycopg2
 from flask import Flask, request, jsonify, send_file
 import json
-rom azure.storage.blob import BlobServiceClient
+from azure.storage.blob import BlobServiceClient
 
 
 
