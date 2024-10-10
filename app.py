@@ -14,6 +14,20 @@ DEEPL_API_KEY = '82a64fae-73d4-4739-9935-bbf3cfc15010'
 auth_key = "82a64fae-73d4-4739-9935-bbf3cfc15010"
 translator = deepl.Translator(auth_key)
 
+
+
+# Database connection details
+DB_CONFIG = {
+    'dbname': 'settings_db',
+    'user': 'citus',
+    'password': 'password@123',
+    'host': 'c-settings-details.4frco7jk32qfsk.postgres.cosmos.azure.com',
+    'port': '5432'
+}
+
+
+
+
 # Language mapping
 language_mapping = {
     "Arabic": "AR",
@@ -182,6 +196,23 @@ def translate_document(file, source_lang, target_lang):
     else:
         return None, None, f"Error downloading document: {download_response.status_code}, {download_response.text}"
 
+
+# Function to connect to the database
+def get_db_connection():
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        return conn
+    except Exception as e:
+        print(f"Error connecting to the database: {e}")
+        return None
+
+
+
+
+
+
+
+
 @app.route('/')
 def say_hi():
     return 'Hi! This is a service that offers both addition and translation. Use /add for addition and /translate for translation.'
@@ -273,6 +304,43 @@ def submit_feedback():
         return jsonify({'error': result}), 500
 
     return jsonify({'message': result}), 200
+
+
+@app.route('/save_settings_deepl', methods=['POST'])
+def save_settings_deepl():
+    # Check if the required form data is present
+    if 'admin_id' not in request.form or 'api_key' not in request.form:
+        return jsonify({"error": "Missing admin_id or api_key"}), 400
+
+    admin_id = request.form['admin_id']
+    api_key = request.form['api_key']
+
+    # Insert data into the database
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor()
+
+        # SQL query to insert admin_id and api_key into the deepl_settings table
+        query = """
+        INSERT INTO deepl_settings (admin_id, api_key)
+        VALUES (%s, %s)
+        ON CONFLICT (admin_id) DO UPDATE
+        SET api_key = EXCLUDED.api_key;
+        """
+
+        cursor.execute(query, (admin_id, api_key))
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        return jsonify({"message": "Settings saved successfully!"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
     
