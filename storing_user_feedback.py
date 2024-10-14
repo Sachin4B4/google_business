@@ -1,7 +1,7 @@
 from flask import jsonify
 import psycopg2
 from psycopg2 import sql
-from db_connection.py import connect_db  # Import the connection function from a shared module
+from db_connection import connect_db  # Import the connection function from a shared module
 
 def store_feedback(feedback_data):
     """Store user feedback in the database."""
