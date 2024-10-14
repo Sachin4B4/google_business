@@ -6,6 +6,7 @@ import psycopg2
 from flask import Flask, request, jsonify, send_file
 import json
 from azure.storage.blob import BlobServiceClient
+from storing_user_feedback import store_feedback
 
 
 
@@ -684,6 +685,22 @@ def translate_files():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+
+
+
+
+
+
+
+from storing_user_feedback import store_feedback
+
+app = Flask(__name__)
+
+@app.route('/add_feedback', methods=['POST'])
+def add_feedback():
+    feedback_data = request.json
+    return store_feedback(feedback_data)
 
 
 
