@@ -3,11 +3,10 @@ import time
 import os
 import deepl
 import psycopg2
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, Response
 import json
 from azure.storage.blob import BlobServiceClient
 from storing_user_feedback import store_feedback  # Import the feedback function
-
 
 
 app = Flask(__name__)
@@ -631,6 +630,56 @@ def translate_files():
 def add_feedback():
     feedback_data = request.json  # Get feedback data from the request
     return store_feedback(feedback_data)  # Call the feedback storage function
+
+
+
+
+
+
+
+
+@app.route('/download_translated_file', methods=['POST'])
+def download_translated_document():
+    data = request.json
+    download_url = data.get('download_url')
+    document_key = data.get('document_key')
+
+    if not download_url or not document_key:
+        return jsonify({"error": "Missing document URL or document key"}), 400
+
+    # Extract document_id from the download URL
+    document_id = download_url.split('/v2/document/')[1].split('/result')[0]
+
+    # Prepare the headers for the POST request
+    headers = {
+        "Authorization": f"DeepL-Auth-Key {DEEPL_API_KEY}",
+        "User-Agent": "YourApp/1.0",
+        "Content-Type": "application/json"
+    }
+
+    # Prepare the payload with the document_key
+    payload = {
+        "document_key": document_key
+    }
+
+    # Send the POST request to DeepL API to download the translated document
+    response = requests.post(f'https://api.deepl.com/v2/document/{document_id}/result', headers=headers, json=payload)
+
+    # If request fails, return the error
+    if response.status_code != 200:
+        return jsonify({"error": f"Failed to download the document. Status code: {response.status_code}"}), response.status_code
+
+    # Send the file content as a response directly to the client
+    return Response(
+        response.content,
+        mimetype='application/octet-stream',
+        headers={
+            "Content-Disposition": f"attachment;filename=translated_document_{document_id}.txt"
+        }
+    )
+
+
+
 
 
 
