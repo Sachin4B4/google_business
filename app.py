@@ -749,8 +749,6 @@ import time
 from datetime import datetime, timedelta
 from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
 
-app = Flask(__name__)
-
 # Language mapping as provided
 language_mapping = {
     "Arabic": "AR",
