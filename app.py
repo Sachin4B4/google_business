@@ -742,6 +742,171 @@ def delete_old_containers():
 
 
 
+
+
+
+import os
+import logging
+import requests
+from datetime import datetime, timedelta
+from flask import Flask, request, jsonify
+from werkzeug.utils import secure_filename
+from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
+
+app = Flask(__name__)
+
+# Replace with your Azure Blob Storage connection string and DeepL API key
+STORAGE_CONNECTION_STRING = os.getenv('STORAGE_CONNECTION_STRING')
+DEEPL_API_KEY = os.getenv('DEEPL_API_KEY')
+
+@app.route('/translate_deepl_sas', methods=['POST'])
+def translate_file():
+    logging.info('Flask function processing a request.')
+
+    try:
+        # Read form-data input
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
+
+        uploaded_file = request.files['file']  # File input as form-data
+        source_lang = request.form.get('source_lang')
+        target_lang = request.form.get('target_lang')
+        formality = request.form.get('formality')
+
+        if not uploaded_file:
+            return jsonify({"error": "No file uploaded"}), 400
+
+        # Save the file temporarily in the server's working directory
+        file_path = os.path.join("/tmp", secure_filename(uploaded_file.filename))
+        uploaded_file.save(file_path)
+
+        # Call function to upload and translate the file
+        download_url, document_key = upload_and_translate_file(file_path, source_lang, target_lang, formality)
+
+        if download_url and document_key:
+            # Call function to download and upload the translated file to Blob Storage
+            sas_url = download_and_upload_translated_document(download_url, document_key, uploaded_file.filename, target_lang)
+            return jsonify({"sas_url": sas_url}), 200
+        else:
+            return jsonify({"error": "Translation failed"}), 500
+
+    except Exception as e:
+        logging.error(f"Error occurred: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+def upload_and_translate_file(file_path, source_lang, target_lang, formality):
+    # Set your DeepL API translation endpoint (change as per your use case)
+    endpoint_url = 'https://api.deepl.com/v2/document'
+
+    # Prepare the file to be uploaded for translation
+    files = {'file': open(file_path, 'rb')}
+
+    # Prepare the form data for translation API
+    data = {
+        'source_lang': source_lang,
+        'target_lang': target_lang,
+        'formality': formality
+    }
+
+    # Send POST request to DeepL API for translation
+    response = requests.post(endpoint_url, files=files, data=data, headers={"Authorization": f"DeepL-Auth-Key {DEEPL_API_KEY}"})
+
+    if response.status_code == 200:
+        translation_data = response.json()
+        download_url = translation_data['download_url']
+        document_key = translation_data['document_key']
+        return download_url, document_key
+
+    return None, None
+
+
+def download_and_upload_translated_document(download_url, document_key, original_file_name, target_lang):
+    try:
+        # Extract document ID from the download URL
+        document_id = download_url.split('/v2/document/')[1].split('/result')[0]
+
+        # Request headers for downloading the translated document
+        headers = {
+            "Authorization": f"DeepL-Auth-Key {DEEPL_API_KEY}",
+            "User-Agent": "YourApp/1.0",
+            "Content-Type": "application/json"
+        }
+        payload = {"document_key": document_key}
+        response = requests.post(f'https://api.deepl.com/v2/document/{document_id}/result', headers=headers, json=payload)
+
+        if response.status_code != 200:
+            return f"Failed to download the document. Status code: {response.status_code}"
+
+        # Determine file extension from Content-Type
+        content_type = response.headers.get('Content-Type')
+        content_type_mapping = {
+            'application/pdf': 'pdf',
+            'application/msword': 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+            'text/plain': 'txt'
+        }
+        file_extension = content_type_mapping.get(content_type, 'txt')
+
+        # Azure Blob Storage client initialization
+        blob_service_client = BlobServiceClient.from_connection_string(STORAGE_CONNECTION_STRING)
+
+        # Modify file name to include target language abbreviation (e.g., hello-es.pdf)
+        original_file_name_no_ext = os.path.splitext(original_file_name)[0]
+        target_lang_abbreviation = target_lang[:2].lower()
+        translated_file_name = f"{original_file_name_no_ext}-{target_lang_abbreviation}.{file_extension}"
+
+        # Use current time to ensure unique container name
+        current_time = datetime.now().strftime('%Y%m%d%H%M%S')
+        container_name = f"destination-{current_time}".lower()
+
+        # Create a container if it doesn't exist
+        container_client = blob_service_client.get_container_client(container_name)
+        if not container_client.exists():
+            container_client.create_container()
+
+        # Upload translated document to the Blob Storage
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=translated_file_name)
+        blob_client.upload_blob(response.content, overwrite=True)
+
+        # Generate SAS token to access the blob
+        sas_token = generate_blob_sas(
+            account_name=blob_client.account_name,
+            container_name=container_name,
+            blob_name=translated_file_name,
+            account_key=blob_service_client.credential.account_key,
+            permission=BlobSasPermissions(read=True),
+            expiry=datetime.utcnow() + timedelta(hours=1)
+        )
+        sas_url = f"{blob_client.url}?{sas_token}"
+
+        return sas_url
+
+    except Exception as e:
+        logging.error(f"Error during document upload: {str(e)}")
+        return f"An error occurred: {str(e)}"
+
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     
 if __name__ == '__main__':
     # Use the environment variable PORT, or default to port 5000 if not set
