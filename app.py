@@ -853,14 +853,15 @@ def translate_files2():
             retry_count = 0
             status = 'translating'
 
-            while status == 'translating' and retry_count < max_retries:
-                time.sleep(10)
+            retry_count = 0
+            retry_interval = 10  # Start with 10 seconds
+    
+            while status in ['translating', 'queued'] and retry_count < max_retries:
+                time.sleep(retry_interval)
                 status_response = requests.post(check_status_url, json=status_payload, headers=headers)
                 status_data = status_response.json()
                 status = status_data['status']
-
-                print(f"Status check response for {file.filename}: {status_data}")
-
+    
                 if status == 'done':
                     break
                 elif status == 'failed':
@@ -870,7 +871,9 @@ def translate_files2():
                         "status_details": status_data,
                         "error_message": error_message
                     }), 500
-
+    
+                # Exponential backoff: double the wait time after each retry
+                retry_interval = min(retry_interval * 2, 300)  # Cap the wait time at 5 minutes
                 retry_count += 1
 
             if status != 'done':
