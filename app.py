@@ -744,153 +744,185 @@ def delete_old_containers():
 
 
 
-
-import os
-import logging
-import requests
-from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
-from werkzeug.utils import secure_filename
+import requests
+import time
+from datetime import datetime, timedelta
 from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
 
 app = Flask(__name__)
 
-# Replace with your Azure Blob Storage connection string and DeepL API key
+# Language mapping as provided
+language_mapping = {
+    "Arabic": "AR",
+    "Bulgarian": "BG",
+    "Czech": "CS",
+    "Danish": "DA",
+    "German": "DE",
+    "Greek": "EL",
+    "English": "EN",
+    "English (British)": "EN-GB",
+    "English (American)": "EN-US",
+    "Spanish": "ES",
+    "Estonian": "ET",
+    "Finnish": "FI",
+    "French": "FR",
+    "Hungarian": "HU",
+    "Indonesian": "ID",
+    "Italian": "IT",
+    "Japanese": "JA",
+    "Korean": "KO",
+    "Lithuanian": "LT",
+    "Latvian": "LV",
+    "Norwegian Bokmål": "NB",
+    "Dutch": "NL",
+    "Polish": "PL",
+    "Portuguese": "PT",
+    "Portuguese (Brazilian)": "PT-BR",
+    "Portuguese (European)": "PT-PT",
+    "Romanian": "RO",
+    "Russian": "RU",
+    "Slovak": "SK",
+    "Slovenian": "SL",
+    "Swedish": "SV",
+    "Turkish": "TR",
+    "Ukrainian": "UK",
+    "Chinese": "ZH",
+    "Chinese (Simplified)": "ZH-HANS",
+    "Chinese (Traditional)": "ZH-HANT"
+}
+
+# Supported languages for formality
+formality_supported_languages = {"DE", "FR", "IT", "ES", "NL", "PL", "PT-BR", "PT-PT", "JA", "RU"}
+
+DEEPL_API_URL = 'https://api.deepl.com/v2/document'
+DEEPL_API_KEY = '82a64fae-73d4-4739-9935-bbf3cfc15010'  # Replace with your actual DeepL API key
 STORAGE_CONNECTION_STRING = "DefaultEndpointsProtocol=https;AccountName=devaitranslationstorage;AccountKey=GtiG/Hm1kzpGy8aElsdqgBiApPvUgEg+8DbylzCUYV+f4ZCfsNFRCLLIsfrvPemzXqm5hnIw6VGA+AStpe8FWQ==;EndpointSuffix=core.windows.net"
-DEEPL_API_KEY = "82a64fae-73d4-4739-9935-bbf3cfc15010"
 
-@app.route('/translate_deepl_sas', methods=['POST'])
-def translate_file():
-    logging.info('Flask function processing a request.')
+# Initialize Azure Blob Service Client
+blob_service_client = BlobServiceClient.from_connection_string(STORAGE_CONNECTION_STRING)
 
+@app.route('/multiple_files2', methods=['POST'])
+def translate_files():
     try:
-        # Read form-data input
-        if 'file' not in request.files:
-            return jsonify({"error": "No file uploaded"}), 400
+        # Retrieve form data
+        files = request.files.getlist('file')
+        source_lang = request.form.get('source_lang', 'auto')
+        target_lang = request.form['target_lang']
+        formality = request.form['formality']
 
-        uploaded_file = request.files['file']  # File input as form-data
-        source_lang = request.form.get('source_lang')
-        target_lang = request.form.get('target_lang')
-        formality = request.form.get('formality')
+        source_lang_code = language_mapping.get(source_lang, 'auto')
+        target_lang_code = language_mapping.get(target_lang)
 
-        if not uploaded_file:
-            return jsonify({"error": "No file uploaded"}), 400
+        if not target_lang_code:
+            return jsonify({"error": "Invalid target language"}), 400
 
-        # Save the file temporarily in the server's working directory
-        file_path = os.path.join("/tmp", secure_filename(uploaded_file.filename))
-        uploaded_file.save(file_path)
+        if target_lang_code not in formality_supported_languages and formality in ['more', 'less']:
+            return jsonify({
+                "error": f"Formality '{formality}' is not supported for the target language '{target_lang}'."
+            }), 400
 
-        # Call function to upload and translate the file
-        download_url, document_key = upload_and_translate_file(file_path, source_lang, target_lang, formality)
+        # List to hold SAS URLs for all translated files
+        sas_urls = []
 
-        if download_url and document_key:
-            # Call function to download and upload the translated file to Blob Storage
-            sas_url = download_and_upload_translated_document(download_url, document_key, uploaded_file.filename, target_lang)
-            return jsonify({"sas_url": sas_url}), 200
-        else:
-            return jsonify({"error": "Translation failed"}), 500
+        for file in files:
+            # Prepare file and payload for the DeepL API request
+            file_payload = {
+                'file': (file.filename, file.stream, file.content_type),
+                'target_lang': (None, target_lang_code),
+                'source_lang': (None, source_lang_code if source_lang_code != 'auto' else None),
+                'formality': (None, formality)
+            }
+
+            headers = {
+                'Authorization': f'DeepL-Auth-Key {DEEPL_API_KEY}'
+            }
+
+            # 1. Upload document for translation
+            response = requests.post(DEEPL_API_URL, files=file_payload, headers=headers)
+
+            if response.status_code != 200:
+                return jsonify({"error": f"File upload failed for {file.filename}"}), response.status_code
+
+            response_data = response.json()
+            document_id = response_data['document_id']
+            document_key = response_data['document_key']
+
+            # 2. Check translation status (polling)
+            check_status_url = f"{DEEPL_API_URL}/{document_id}"
+            status_payload = {"document_key": document_key}
+
+            max_retries = 20
+            retry_count = 0
+            status = 'translating'
+
+            while status == 'translating' and retry_count < max_retries:
+                time.sleep(10)
+                status_response = requests.post(check_status_url, json=status_payload, headers=headers)
+                status_data = status_response.json()
+                status = status_data['status']
+
+                print(f"Status check response for {file.filename}: {status_data}")
+
+                if status == 'done':
+                    break
+                elif status == 'failed':
+                    error_message = status_data.get('error', 'Unknown error occurred')
+                    return jsonify({
+                        "error": f"Translation failed for {file.filename}",
+                        "status_details": status_data,
+                        "error_message": error_message
+                    }), 500
+
+                retry_count += 1
+
+            if status != 'done':
+                return jsonify({
+                    "error": f"Translation still in progress for {file.filename} after maximum retries.",
+                    "status_details": status_data
+                }), 500
+
+            # 3. Download the translated document
+            download_response = requests.post(f"{DEEPL_API_URL}/{document_id}/result", 
+                                            json={"document_key": document_key}, 
+                                            headers=headers)
+
+            if download_response.status_code != 200:
+                return jsonify({"error": f"Failed to download translated file for {file.filename}"}), download_response.status_code
+
+            # Create translated blob name using original file name and target language code
+            translated_blob_name = f"{file.filename.rsplit('.', 1)[0]}-{target_lang_code}.{file.filename.rsplit('.', 1)[-1]}"
+
+            # Upload the translated document to Azure Blob Storage
+            container_name = f"destination-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            blob_service_client.create_container(container_name)
+
+            blob_client = blob_service_client.get_blob_client(container=container_name, blob=translated_blob_name)
+
+            # Upload the translated content
+            blob_client.upload_blob(download_response.content, overwrite=True)
+
+            # Generate a SAS URL for the uploaded blob
+            sas_token = generate_blob_sas(
+                account_name='devaitranslationstorage',  # Your storage account name
+                account_key='GtiG/Hm1kzpGy8aElsdqgBiApPvUgEg+8DbylzCUYV+f4ZCfsNFRCLLIsfrvPemzXqm5hnIw6VGA+AStpe8FWQ==',  # Your account key
+                container_name=container_name,
+                blob_name=translated_blob_name,
+                permission=BlobSasPermissions(read=True),
+                expiry=datetime.utcnow() + timedelta(hours=1)
+            )
+
+            sas_url = f"https://{blob_service_client.account_name}.blob.core.windows.net/{container_name}/{translated_blob_name}?{sas_token}"
+            sas_urls.append({"filename": file.filename, "sas_url": sas_url})
+
+        # Return the list of SAS URLs for all uploaded files
+        return jsonify({"sas_urls": sas_urls})
 
     except Exception as e:
-        logging.error(f"Error occurred: {e}")
         return jsonify({"error": str(e)}), 500
 
-
-def upload_and_translate_file(file_path, source_lang, target_lang, formality):
-    # Set your DeepL API translation endpoint (change as per your use case)
-    endpoint_url = 'https://api.deepl.com/v2/document'
-
-    # Prepare the file to be uploaded for translation
-    files = {'file': open(file_path, 'rb')}
-
-    # Prepare the form data for translation API
-    data = {
-        'source_lang': source_lang,
-        'target_lang': target_lang,
-        'formality': formality
-    }
-
-    # Send POST request to DeepL API for translation
-    response = requests.post(endpoint_url, files=files, data=data, headers={"Authorization": f"DeepL-Auth-Key {DEEPL_API_KEY}"})
-
-    if response.status_code == 200:
-        translation_data = response.json()
-        download_url = translation_data['download_url']
-        document_key = translation_data['document_key']
-        return download_url, document_key
-
-    return None, None
-
-
-def download_and_upload_translated_document(download_url, document_key, original_file_name, target_lang):
-    try:
-        # Extract document ID from the download URL
-        document_id = download_url.split('/v2/document/')[1].split('/result')[0]
-
-        # Request headers for downloading the translated document
-        headers = {
-            "Authorization": f"DeepL-Auth-Key {DEEPL_API_KEY}",
-            "User-Agent": "YourApp/1.0",
-            "Content-Type": "application/json"
-        }
-        payload = {"document_key": document_key}
-        response = requests.post(f'https://api.deepl.com/v2/document/{document_id}/result', headers=headers, json=payload)
-
-        if response.status_code != 200:
-            return f"Failed to download the document. Status code: {response.status_code}"
-
-        # Determine file extension from Content-Type
-        content_type = response.headers.get('Content-Type')
-        content_type_mapping = {
-            'application/pdf': 'pdf',
-            'application/msword': 'doc',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-            'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-            'text/plain': 'txt'
-        }
-        file_extension = content_type_mapping.get(content_type, 'txt')
-
-        # Azure Blob Storage client initialization
-        blob_service_client = BlobServiceClient.from_connection_string(STORAGE_CONNECTION_STRING)
-
-        # Modify file name to include target language abbreviation (e.g., hello-es.pdf)
-        original_file_name_no_ext = os.path.splitext(original_file_name)[0]
-        target_lang_abbreviation = target_lang[:2].lower()
-        translated_file_name = f"{original_file_name_no_ext}-{target_lang_abbreviation}.{file_extension}"
-
-        # Use current time to ensure unique container name
-        current_time = datetime.now().strftime('%Y%m%d%H%M%S')
-        container_name = f"destination-{current_time}".lower()
-
-        # Create a container if it doesn't exist
-        container_client = blob_service_client.get_container_client(container_name)
-        if not container_client.exists():
-            container_client.create_container()
-
-        # Upload translated document to the Blob Storage
-        blob_client = blob_service_client.get_blob_client(container=container_name, blob=translated_file_name)
-        blob_client.upload_blob(response.content, overwrite=True)
-
-        # Generate SAS token to access the blob
-        sas_token = generate_blob_sas(
-            account_name=blob_client.account_name,
-            container_name=container_name,
-            blob_name=translated_file_name,
-            account_key=blob_service_client.credential.account_key,
-            permission=BlobSasPermissions(read=True),
-            expiry=datetime.utcnow() + timedelta(hours=1)
-        )
-        sas_url = f"{blob_client.url}?{sas_token}"
-
-        return sas_url
-
-    except Exception as e:
-        logging.error(f"Error during document upload: {str(e)}")
-        return f"An error occurred: {str(e)}"
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
-
 
 
 
