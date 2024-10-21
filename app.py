@@ -756,8 +756,8 @@ from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPerm
 app = Flask(__name__)
 
 # Replace with your Azure Blob Storage connection string and DeepL API key
-STORAGE_CONNECTION_STRING = os.getenv('STORAGE_CONNECTION_STRING')
-DEEPL_API_KEY = os.getenv('DEEPL_API_KEY')
+STORAGE_CONNECTION_STRING = "DefaultEndpointsProtocol=https;AccountName=devaitranslationstorage;AccountKey=GtiG/Hm1kzpGy8aElsdqgBiApPvUgEg+8DbylzCUYV+f4ZCfsNFRCLLIsfrvPemzXqm5hnIw6VGA+AStpe8FWQ==;EndpointSuffix=core.windows.net"
+DEEPL_API_KEY = "82a64fae-73d4-4739-9935-bbf3cfc15010"
 
 @app.route('/translate_deepl_sas', methods=['POST'])
 def translate_file():
