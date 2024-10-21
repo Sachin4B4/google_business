@@ -10,6 +10,5 @@ deepl
 urllib3
 psycopg2
 azure-storage-blob
-time
-datetime
+
 
