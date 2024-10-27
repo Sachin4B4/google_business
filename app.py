@@ -31,7 +31,7 @@ def login_callback():
     return saml_callback(app.config["SAML_PATH"])
 
 @app.route('/data_from_token', methods=['POST'])
-def get_data_from_token():
+def data_from_token():
     return get_data_from_token(token)
     
 
