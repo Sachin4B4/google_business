@@ -32,6 +32,8 @@ def login_callback():
 
 @app.route('/data_from_token', methods=['POST'])
 def data_from_token():
+    data = request.get_json()
+    token = data.get('token')
     return get_data_from_token(token)
     
 
