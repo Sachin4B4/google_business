@@ -39,7 +39,7 @@ def dev_saml_callback(saml_path):
     errors = auth.get_errors()
     group_name = 'user'
     
-    if not errors
+    if not errors:
         
         user_data = {
             'name': 'Test User',
