@@ -12,4 +12,5 @@ urllib3
 deepl
 psycopg2-binary
 azure-storage-blob
-jwt
+PyJWT
+
