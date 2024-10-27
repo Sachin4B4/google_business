@@ -4,6 +4,7 @@ import os
 import deepl
 import psycopg2
 from flask import Flask, request, jsonify, send_file, Response
+from saml import saml_login, saml_callback, get_data_from_token
 import json
 from azure.storage.blob import BlobServiceClient
 from storing_user_feedback import store_feedback  # Import the feedback function
@@ -18,7 +19,21 @@ DEEPL_API_KEY = '82a64fae-73d4-4739-9935-bbf3cfc15010'
 auth_key = "82a64fae-73d4-4739-9935-bbf3cfc15010"
 translator = deepl.Translator(auth_key)
 
+app.config["SECRET_KEY"] = "onelogindemopytoolkit"
+app.config["SAML_PATH"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saml")
+# SAML routes
+@app.route('/saml/login')
+def login():
+    return saml_login(app.config["SAML_PATH"])
 
+@app.route('/saml/callback', methods=['POST'])
+def login_callback():
+    return saml_callback(app.config["SAML_PATH"])
+
+@app.route('/data_from_token', methods=['POST'])
+def get_data_from_token():
+    return get_data_from_token(token)
+    
 
 # Database connection details
 DB_CONFIG = {
@@ -28,8 +43,6 @@ DB_CONFIG = {
     'host': 'c-settings-details.4frco7jk32qfsk.postgres.cosmos.azure.com',
     'port': '5432'
 }
-
-
 
 
 # Language mapping
