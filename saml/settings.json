@@ -2,7 +2,7 @@
   "sp": {
     "entityId": "lang-trans-sso",
     "assertionConsumerService": {
-      "url": "https://test-12-h3cgcrgjhmdhhses.centralindia-01.azurewebsites.net//saml/callback",
+      "url": "https://test-12-h3cgcrgjhmdhhses.centralindia-01.azurewebsites.net/saml/callback",
       "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
     },
     "singleLogoutService": {
