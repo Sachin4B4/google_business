@@ -26,13 +26,13 @@ def prepare_flask_request(request):
         'post_data': request.form.copy(),
     }
 
-def dev_saml_login(saml_path):
+def saml_login(saml_path):
     print('In SAML Login')
     req = prepare_flask_request(request)
     auth = init_saml_auth(req, saml_path)
     return redirect(auth.login())
 
-def dev_saml_callback(saml_path):
+def saml_callback(saml_path):
     req = prepare_flask_request(request)
     auth = init_saml_auth(req, saml_path)
     auth.process_response()
@@ -64,7 +64,7 @@ def create_jwt_token(user_data):
     token = jwt.encode(payload, JWT_SECRET_KEY, algorithm='HS256')
     return token
 
-def dev_get_data_from_token(token):
+def get_data_from_token(token):
     try:
         # Decode the token (this will verify the signature and expiration)
         decoded_data = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'])
