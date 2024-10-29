@@ -48,7 +48,7 @@ def saml_callback(saml_path):
 
         token = create_jwt_token(user_data)
         # Redirect to the React dashboard with the user data
-        return redirect(f'http://127.0.0.1:5173/dashboard?token={token}')
+        return redirect(f'http://localhost:5173/dashboard?token={token}')
     else:
         return f"Error in SAML Authentication: {errors}-{req}", 500
 
